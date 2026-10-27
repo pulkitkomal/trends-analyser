@@ -1,0 +1,22 @@
+services:
+  api:
+    build: ./apps/api
+    restart: unless-stopped
+    env_file:
+      - ./apps/api/.env
+    environment:
+      DATABASE_URL: sqlite:////data/trends.db
+      CORS_ORIGINS: https://topics.k4mik4ge.xyz,http://localhost:8678,http://127.0.0.1:8678
+    volumes:
+      - ./data:/data
+
+  web:
+    build: ./apps/web
+    restart: unless-stopped
+    ports:
+      - "8678:8678"
+    environment:
+      API_URL: http://api:8001
+      TUNNEL_HOST: topics.k4mik4ge.xyz
+    depends_on:
+      - api
