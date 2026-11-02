@@ -3,6 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Shell } from "@/components/Shell";
+import { InterestChart } from "@/components/InterestChart";
+import { SourceMix } from "@/components/SourceMix";
+import { WordCloud } from "@/components/WordCloud";
 import { api, type Dashboard, type Topic } from "@/lib/api";
 import { sourceName, timeAgo } from "@/lib/format";
 
@@ -35,17 +38,27 @@ export default function TopicPage() {
     load();
   }, [id, load]);
 
-  const interestLatest = useMemo(() => {
+  const interestSeries = useMemo(() => {
     if (!dash) return [];
-    const byTerm = new Map<string, { date: string; value: number }>();
+    const byTerm = new Map<string, { date: string; value: number }[]>();
     for (const row of dash.interest) {
-      const prev = byTerm.get(row.term);
-      if (!prev || row.date > prev.date) byTerm.set(row.term, { date: row.date, value: row.value });
+      const list = byTerm.get(row.term) || [];
+      list.push({ date: row.date, value: row.value });
+      byTerm.set(row.term, list);
     }
-    return [...byTerm.entries()].map(([term, v]) => ({ term, ...v }));
+    return [...byTerm.entries()].map(([term, points]) => ({
+      term,
+      points: points.sort((a, b) => a.date.localeCompare(b.date)),
+    }));
   }, [dash]);
 
-  const liveInterest = interestLatest.filter((row) => row.value > 0);
+  const sourceCounts = useMemo(() => {
+    if (!dash) return [];
+    const counts = new Map<string, number>();
+    for (const p of dash.posts) counts.set(p.source, (counts.get(p.source) || 0) + 1);
+    return [...counts.entries()].map(([source, count]) => ({ source, count }));
+  }, [dash]);
+
   const [lead, rest] = splitLead(dash?.briefing || "");
 
   async function refresh() {
@@ -143,6 +156,24 @@ export default function TopicPage() {
           )}
 
           <div className="dash">
+            <section className="block span-7">
+              <h2>Word cloud</h2>
+              <p className="block-muted">Phrases sized by how often they show up in posts and replies.</p>
+              <WordCloud words={dash.keywords} />
+            </section>
+
+            <section className="block span-5">
+              <h2>Sources</h2>
+              <p className="block-muted">Where this snapshot’s posts come from.</p>
+              <SourceMix counts={sourceCounts} />
+            </section>
+
+            <section className="block span-12">
+              <h2>Search interest</h2>
+              <p className="block-muted">Google Trends over the recent window.</p>
+              <InterestChart series={interestSeries} />
+            </section>
+
             <section className="block span-5">
               <h2>Coming up again</h2>
               <p className="block-muted">Themes that show up in more than one place.</p>
@@ -158,32 +189,6 @@ export default function TopicPage() {
               ) : (
                 <p className="empty">Update this topic to see repeating themes.</p>
               )}
-            </section>
-
-            <section className="block span-7">
-              <h2>Words people use</h2>
-              <p className="block-muted">Phrases that keep appearing in posts and replies.</p>
-              <div className="chip-row">
-                {dash.keywords.slice(0, 14).map((k) => (
-                  <span className="chip" key={k.term}>
-                    {k.term}
-                  </span>
-                ))}
-                {!dash.keywords.length ? <p className="empty">Update to see the language people use.</p> : null}
-              </div>
-              {liveInterest.length ? (
-                <div className="interest-bars" aria-label="Search interest">
-                  {liveInterest.map((row) => (
-                    <div className="bar" key={row.term}>
-                      <span>{row.term}</span>
-                      <span>{Math.round(row.value)}</span>
-                      <div className="bar-track">
-                        <div className="bar-fill" style={{ width: `${Math.min(100, row.value)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
             </section>
 
             <section className="block span-7">

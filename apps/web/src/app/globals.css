@@ -512,32 +512,134 @@ select {
   font-size: 13px;
 }
 
-.interest-bars {
-  display: grid;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: 8px;
+.word-cloud {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  font-size: 12px;
+  gap: 6px 12px;
+  min-height: 140px;
+  padding: 4px 0 2px;
 }
 
-.bar-track {
-  grid-column: 1 / -1;
-  height: 4px;
-  border-radius: 2px;
+.cloud-word {
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.cloud-heat {
+  color: var(--heat);
+}
+
+.cloud-muted {
+  color: var(--text-secondary);
+}
+
+.source-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.source-bars li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.source-label {
+  color: var(--text);
+}
+
+.source-track {
+  height: 8px;
+  border-radius: 4px;
   background: var(--fill);
   overflow: hidden;
 }
 
-.bar-fill {
+.source-fill {
   height: 100%;
-  background: var(--live);
-  border-radius: 2px;
+  border-radius: 4px;
+  min-width: 4px;
+  transition: width 0.35s ease;
+}
+
+.source-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.source-pct {
+  margin-left: 6px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.interest-chart {
+  margin-top: 4px;
+}
+
+.interest-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+}
+
+.chart-grid {
+  stroke: var(--fill-strong);
+  stroke-width: 1;
+}
+
+.chart-tick {
+  fill: var(--text-secondary);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.chart-end {
+  fill: var(--text);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.chart-legend {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .source-fill {
+    transition: none;
+  }
 }
 
 .channels {

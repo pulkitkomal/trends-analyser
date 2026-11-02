@@ -61,28 +61,50 @@ def enrich(topic: Topic, posts: list[Post], comments: list[Comment]) -> dict[str
 
 
 def _bundle(topic: Topic, posts: list[Post], comments: list[Comment]) -> str:
+    # Cap per source so GitHub repos cannot crowd out news / HN / Bluesky.
+    per_source: dict[str, int] = {}
+    picked: list[Post] = []
+    for p in by_recency(posts):
+        n = per_source.get(p.source.value, 0)
+        if n >= 5:
+            continue
+        per_source[p.source.value] = n + 1
+        picked.append(p)
+        if len(picked) >= 20:
+            break
     post_bits = []
-    for p in by_recency(posts, limit=12):
+    for p in picked:
         post_bits.append(
             {
                 "source": p.source.value,
                 "title": clean_text(p.title)[:180],
                 "url": p.url,
                 "author": p.author,
+                "score": p.score,
+                "comments": p.comment_count,
                 "posted": p.created_at.isoformat() if p.created_at else "",
-                "body": clean_text(p.body)[:400],
+                "body": clean_text(p.body)[:500],
             }
         )
     comment_bits = []
-    for c in sorted(comments, key=lambda x: (x.score, len(x.body)), reverse=True)[:16]:
+    for c in sorted(comments, key=lambda x: (x.score, len(x.body)), reverse=True)[:20]:
         body = clean_text(c.body)
         if len(body) < 40:
             continue
-        comment_bits.append({"author": c.author, "body": body[:350]})
+        comment_bits.append(
+            {"author": c.author, "source": c.source.value, "body": body[:350]}
+        )
     return json.dumps(
-        {"topic": topic.name, "seed": topic.seed, "posts": post_bits, "comments": comment_bits},
+        {
+            "topic": topic.name,
+            "seed": topic.seed,
+            "source_counts": {k: per_source.get(k, 0) for k in sorted(per_source)},
+            "posts": post_bits,
+            "comments": comment_bits,
+        },
         ensure_ascii=False,
     )
+
 
 
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:

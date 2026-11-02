@@ -3,17 +3,19 @@ from datetime import datetime, timezone
 import httpx
 
 from app.adapters.base import FetchedComment, FetchedPost
-from app.adapters.recency import RECENT_DAYS, by_recency, github_query, keep_recent
+from app.adapters.recency import RECENT_DAYS, by_recency, github_query, keep_recent, unique_posts
 from app.config import settings
 
 API = "https://api.github.com"
+MIN_STARS = 5
 
 
 def fetch_posts(query: str, limit: int = 10) -> list[FetchedPost]:
-    posts = _search(query, limit, days=RECENT_DAYS)
+    posts = _search(query, limit, days=RECENT_DAYS, sort="updated")
     if len(posts) < 3:
-        wider = _search(query, limit, days=90)
-        posts = keep_recent(posts + wider, days=90) or by_recency(wider, limit=limit)
+        starred = _search(query, limit, days=None, sort="stars")
+        posts = unique_posts(posts + starred)
+        posts = keep_recent(posts, days=90) or by_recency(posts, limit=limit)
     return _cap_authors(posts)[:limit]
 
 
@@ -30,17 +32,26 @@ def _cap_authors(posts: list[FetchedPost], per_author: int = 2) -> list[FetchedP
     return out
 
 
-def _search(query: str, limit: int, days: int | None) -> list[FetchedPost]:
+def _qualify(query: str) -> str:
+    q = query.strip()
+    if " " not in q and ":" not in q:
+        q = f"{q} in:name,description,readme"
+    if "stars:" not in q:
+        q = f"{q} stars:>{MIN_STARS}"
+    return q
+
+
+def _search(query: str, limit: int, days: int | None, sort: str) -> list[FetchedPost]:
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "trends-analyser"}
     if settings.github_token:
         headers["Authorization"] = f"Bearer {settings.github_token}"
-    q = query if " " in query or ":" in query else f"{query} in:name,description,readme"
+    q = _qualify(query)
     if days:
         q = github_query(q, days)
     with httpx.Client(timeout=30, headers=headers) as client:
         r = client.get(
             f"{API}/search/repositories",
-            params={"q": q, "sort": "updated", "order": "desc", "per_page": limit},
+            params={"q": q, "sort": sort, "order": "desc", "per_page": limit},
         )
         if r.status_code == 403:
             return []
@@ -49,14 +60,19 @@ def _search(query: str, limit: int, days: int | None) -> list[FetchedPost]:
         for repo in r.json().get("items", []):
             full_name = repo["full_name"]
             comments = _issues(client, full_name, limit=5)
+            desc = (repo.get("description") or "").strip()
+            stars = int(repo.get("stargazers_count") or 0)
+            body = desc
+            if stars:
+                body = f"{desc}\n\n★ {stars}".strip() if desc else f"★ {stars}"
             posts.append(
                 FetchedPost(
                     external_id=f"gh:{repo['id']}",
                     title=full_name,
-                    body=(repo.get("description") or "")[:2000],
+                    body=body[:2000],
                     url=repo.get("html_url") or "",
                     author=(repo.get("owner") or {}).get("login") or "",
-                    score=int(repo.get("stargazers_count") or 0),
+                    score=stars,
                     comment_count=len(comments),
                     created_at=_parse(repo.get("pushed_at") or repo.get("updated_at")),
                     comments=comments,

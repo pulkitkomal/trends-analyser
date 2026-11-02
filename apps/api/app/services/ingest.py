@@ -1,20 +1,46 @@
 import json
+import logging
 
 from sqlmodel import Session, select
 
 from app.adapters import bluesky, github, hn, rss, trends
+from app.adapters.base import FetchedPost
 from app.adapters.recency import RECENT_DAYS, keep_recent, unique_posts
 from app.models import Comment, Digest, InterestPoint, KeywordStat, LlmReport, Post, SourceKind, Surface, Topic, utcnow
-from app.services.analyze import build_digest, comment_insights, keyword_stats, recurring_trends
+from app.services.analyze import build_digest, comment_insights, heuristic_enrich, keyword_stats, recurring_trends
+from app.services.discover import ensure_default_surfaces
 from app.services.llm import enrich
+
+log = logging.getLogger(__name__)
 
 
 def ingest_topic(session: Session, topic: Topic) -> Topic:
+    ensure_default_surfaces(session, topic.id, topic.seed)  # type: ignore[arg-type]
     surfaces = session.exec(
         select(Surface).where(Surface.topic_id == topic.id, Surface.enabled == True)  # noqa: E712
     ).all()
 
-    # Clear prior derived rows for a fresh snapshot
+    # Fetch first so a mid-run failure does not wipe the previous snapshot.
+    gathered: list[tuple[Surface, list[FetchedPost]]] = []
+    trend_terms: list[str] = []
+    for surface in surfaces:
+        try:
+            if surface.source == SourceKind.trends:
+                trend_terms.append(surface.query)
+                continue
+            fetched = unique_posts(_fetch(surface))
+            fetched = keep_recent(fetched, days=RECENT_DAYS) or keep_recent(fetched, days=90) or fetched
+            gathered.append((surface, fetched))
+        except Exception:
+            log.exception("surface fetch failed topic=%s surface=%s", topic.id, surface.id)
+
+    interest_rows: list[dict] = []
+    if trend_terms:
+        try:
+            interest_rows = trends.fetch_interest(trend_terms)
+        except Exception:
+            log.exception("trends fetch failed topic=%s", topic.id)
+
     for model in (Post, Comment, KeywordStat, InterestPoint, Digest, LlmReport):
         for row in session.exec(select(model).where(model.topic_id == topic.id)).all():  # type: ignore[attr-defined]
             session.delete(row)
@@ -22,14 +48,8 @@ def ingest_topic(session: Session, topic: Topic) -> Topic:
 
     all_posts: list[Post] = []
     all_comments: list[Comment] = []
-    trend_terms: list[str] = []
 
-    for surface in surfaces:
-        if surface.source == SourceKind.trends:
-            trend_terms.append(surface.query)
-            continue
-        fetched = unique_posts(_fetch(surface))
-        fetched = keep_recent(fetched, days=RECENT_DAYS) or keep_recent(fetched, days=90) or fetched
+    for surface, fetched in gathered:
         for fp in fetched:
             post = Post(
                 topic_id=topic.id,
@@ -62,16 +82,15 @@ def ingest_topic(session: Session, topic: Topic) -> Topic:
                 session.add(c)
                 all_comments.append(c)
 
-    if trend_terms:
-        for row in trends.fetch_interest(trend_terms):
-            session.add(
-                InterestPoint(
-                    topic_id=topic.id,
-                    term=row["term"],
-                    date=row["date"],
-                    value=row["value"],
-                )
+    for row in interest_rows:
+        session.add(
+            InterestPoint(
+                topic_id=topic.id,
+                term=row["term"],
+                date=row["date"],
+                value=row["value"],
             )
+        )
 
     session.flush()
     kws = keyword_stats(all_posts, all_comments)
@@ -82,8 +101,10 @@ def ingest_topic(session: Session, topic: Topic) -> Topic:
     recurring = recurring_trends(all_posts, all_comments, kws)
     md = build_digest(topic.name, kws, all_posts, insights, recurring)
     llm = enrich(topic, all_posts, all_comments)
+    if not llm:
+        llm = heuristic_enrich(topic.name, all_posts, all_comments, kws, recurring, insights)
     if llm:
-        if llm["digest"]:
+        if llm.get("digest"):
             md = llm["digest"]
         session.add(
             LlmReport(

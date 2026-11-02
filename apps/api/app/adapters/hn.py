@@ -3,26 +3,34 @@ from datetime import datetime, timezone
 import httpx
 
 from app.adapters.base import FetchedComment, FetchedPost
-from app.adapters.recency import RECENT_DAYS, by_recency, hn_since, keep_recent
+from app.adapters.recency import RECENT_DAYS, by_recency, hn_since, keep_recent, unique_posts
 
-SEARCH = "https://hn.algolia.com/api/v1/search_by_date"
+SEARCH_DATE = "https://hn.algolia.com/api/v1/search_by_date"
+SEARCH = "https://hn.algolia.com/api/v1/search"
 ITEM = "https://hn.algolia.com/api/v1/items"
 
 
 def fetch_posts(query: str, limit: int = 15) -> list[FetchedPost]:
-    posts = _search(query, limit, days=RECENT_DAYS)
+    # Prefer fresh hits; fall back to relevance so niche topics still get signal.
+    recent = _search(SEARCH_DATE, query, limit, days=RECENT_DAYS)
+    if len(recent) >= 3:
+        return recent[:limit]
+    relevant = _search(SEARCH, query, limit, days=None)
+    merged = unique_posts(recent + relevant)
+    posts = keep_recent(merged, days=RECENT_DAYS) or keep_recent(merged, days=365) or by_recency(merged)
     if len(posts) < 3:
-        wider = _search(query, limit, days=90)
-        posts = keep_recent(posts + wider, days=90) or by_recency(wider, limit=limit)
+        wider = _search(SEARCH_DATE, query, limit, days=90)
+        posts = unique_posts(posts + wider)
+        posts = keep_recent(posts, days=90) or by_recency(posts)
     return posts[:limit]
 
 
-def _search(query: str, limit: int, days: int | None) -> list[FetchedPost]:
+def _search(endpoint: str, query: str, limit: int, days: int | None) -> list[FetchedPost]:
     params: dict[str, str | int] = {"query": query, "tags": "story", "hitsPerPage": limit}
     if days:
         params["numericFilters"] = f"created_at_i>{hn_since(days)}"
     with httpx.Client(timeout=30) as client:
-        r = client.get(SEARCH, params=params)
+        r = client.get(endpoint, params=params)
         r.raise_for_status()
         hits = r.json().get("hits", [])
         posts: list[FetchedPost] = []
@@ -39,7 +47,7 @@ def _search(query: str, limit: int, days: int | None) -> list[FetchedPost]:
                 FetchedPost(
                     external_id=f"hn:{object_id}",
                     title=h.get("title") or "(untitled)",
-                    body=h.get("story_text") or "",
+                    body=h.get("story_text") or h.get("title") or "",
                     url=h.get("url") or f"https://news.ycombinator.com/item?id={object_id}",
                     author=h.get("author") or "",
                     score=int(h.get("points") or 0),

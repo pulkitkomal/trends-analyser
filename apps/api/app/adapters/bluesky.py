@@ -6,7 +6,8 @@ from app.adapters.base import FetchedComment, FetchedPost
 from app.adapters.recency import RECENT_DAYS, keep_recent
 from app.config import settings
 
-PUBLIC = "https://public.api.bsky.app"
+# public.api.bsky.app 403s from some hosts; api.bsky.app is the working AppView
+PUBLIC = "https://api.bsky.app"
 
 
 def fetch_posts(query: str, limit: int = 15) -> list[FetchedPost]:

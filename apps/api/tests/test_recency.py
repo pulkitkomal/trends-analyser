@@ -24,6 +24,21 @@ def test_github_query_adds_pushed_filter():
     assert "unofficial game ports" in q
 
 
+def test_github_qualify_adds_stars_floor():
+    from app.adapters.github import _qualify
+
+    q = _qualify("forza horizon 2")
+    assert "stars:>" in q
+    assert "forza horizon 2" in q
+
+
+def test_bluesky_uses_working_appview_host():
+    from app.adapters import bluesky
+
+    assert "api.bsky.app" in bluesky.PUBLIC
+    assert "public.api.bsky.app" not in bluesky.PUBLIC
+
+
 def test_unique_posts_drops_same_url():
     a = FetchedPost(external_id="1", title="A", url="https://example.com/x")
     b = FetchedPost(external_id="2", title="B", url="https://example.com/x?utm=1")

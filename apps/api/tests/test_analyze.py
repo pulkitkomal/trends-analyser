@@ -1,5 +1,11 @@
 from app.models import Comment, Post, SourceKind
-from app.services.analyze import build_digest, comment_insights, keyword_stats, recurring_trends
+from app.services.analyze import (
+    build_digest,
+    comment_insights,
+    heuristic_enrich,
+    keyword_stats,
+    recurring_trends,
+)
 
 
 def test_keyword_phrases_and_no_html_junk():
@@ -19,6 +25,15 @@ def test_keyword_phrases_and_no_html_junk():
             title="steam deck fan port",
             body="&quot;x27&quot; href= github repo for steam deck",
             score=4,
+        ),
+        Post(
+            topic_id=1,
+            source=SourceKind.rss,
+            external_id="3",
+            title="Fan ports hit Steam Deck again",
+            body="News desk covers the latest unofficial steam deck ports.",
+            score=0,
+            url="https://example.com/ports",
         ),
     ]
     comments = [
@@ -44,3 +59,8 @@ def test_keyword_phrases_and_no_html_junk():
     md = build_digest("Unofficial ports", kws, posts, insights, rec)
     assert "talking about" in md
     assert "alice" in md
+    report = heuristic_enrich("Unofficial ports", posts, comments, kws, rec, insights)
+    assert "briefing" in report and len(report["briefing"]) > 40
+    assert report["themes"]
+    assert any(lk.get("url") for lk in report["related"]["links"])
+

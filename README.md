@@ -10,11 +10,11 @@ Topic-based trends dashboard: GitHub, Hacker News, RSS, Bluesky, and Google Tren
 
 ## Features
 
-- Follow a topic and ingest posts from GitHub, Hacker News, RSS, Bluesky, and Google Trends
+- Follow a topic and ingest from Google News, Hacker News, Bluesky, GitHub, and Google Trends
 - Keyword stats, recurring themes, comment insights, and a Markdown community digest
-- Discovery map of related surfaces you can enable or edit
+- Discovery map of related surfaces you can enable or edit (older topics pick up News on refresh)
 - Account register / login so each user’s topics stay private
-- Optional OpenAI summaries when `OPENAI_API_KEY` is set
+- OpenAI summaries when `OPENAI_API_KEY` is set; otherwise a grounded heuristic briefing
 
 ## Docker (stays up for the Cloudflare tunnel)
 

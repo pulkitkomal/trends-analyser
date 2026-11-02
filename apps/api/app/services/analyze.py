@@ -138,10 +138,11 @@ def build_digest(
     for term, count, _ in keywords[:8]:
         lines.append(f"- {term} ({count})")
     lines += ["", "## Worth opening"]
-    for p in by_recency(posts, limit=6):
+    for p in _top_posts(posts, limit=8):
         title = clean_text(p.title)
+        src = p.source.value
         link = f" ({p.url})" if p.url else ""
-        lines.append(f"- {title}{link}")
+        lines.append(f"- [{src}] {title}{link}")
     lines += ["", "## From the comments"]
     if not insights:
         lines.append("- Nothing standout yet.")
@@ -149,6 +150,93 @@ def build_digest(
         who = f" — {i.author}" if i.author else ""
         lines.append(f"- {i.summary}{who}")
     return "\n".join(lines)
+
+
+def heuristic_enrich(
+    topic_name: str,
+    posts: list[Post],
+    comments: list[Comment],
+    keywords: list[tuple[str, int, float]],
+    recurring: list[RecurringOut],
+    insights: list[CommentInsight],
+) -> dict:
+    """Grounded briefing when OpenAI is off or fails."""
+    top = _top_posts(posts, limit=6)
+    sources = sorted({p.source.value for p in posts})
+    sentences: list[str] = []
+    if top:
+        lead = clean_text(top[0].title)
+        src = top[0].source.value
+        sentences.append(f"Right now the loudest item on “{topic_name}” is “{lead}” ({src}).")
+    if len(top) > 1:
+        others = "; ".join(f"“{clean_text(p.title)[:90]}” ({p.source.value})" for p in top[1:4])
+        sentences.append(f"Also in the mix: {others}.")
+    if sources:
+        sentences.append(f"Signal is coming from {', '.join(sources)}.")
+    if recurring:
+        themes = ", ".join(r.term for r in recurring[:4])
+        sentences.append(f"Themes that keep showing up: {themes}.")
+    elif keywords:
+        sentences.append("People keep saying: " + ", ".join(t for t, _, _ in keywords[:5]) + ".")
+    if insights:
+        sentences.append(f"One comment worth reading: {insights[0].summary}")
+    if not sentences:
+        sentences.append(f"No fresh public posts for “{topic_name}” yet — try Update again later.")
+
+    themes = [{"name": r.term, "why": r.why} for r in recurring[:6]]
+    if not themes:
+        themes = [{"name": term, "why": f"Mentioned {count} times in the latest posts"} for term, count, _ in keywords[:5]]
+
+    return {
+        "briefing": " ".join(sentences),
+        "themes": themes,
+        "comment_insights": [
+            {"summary": i.summary, "kind": "claim", "author": i.author or ""} for i in insights[:8]
+        ],
+        "related": {
+            "searches": [t for t, _, _ in keywords[:5]],
+            "names": [],
+            "places": [],
+            "topics": [],
+            "links": [{"title": clean_text(p.title)[:120], "url": p.url} for p in top if p.url][:6],
+        },
+        "digest": build_digest(topic_name, keywords, posts, insights, recurring),
+    }
+
+
+def _top_posts(posts: list[Post], limit: int = 8) -> list[Post]:
+    """Blend newest + high-score posts, round-robin across sources."""
+    newest = by_recency(posts)
+    ranked = sorted(
+        posts,
+        key=lambda p: (p.score or 0) + min(p.comment_count or 0, 40),
+        reverse=True,
+    )
+    blended: list[Post] = []
+    seen: set[int | str] = set()
+    for bucket in (newest[: limit * 2], ranked):
+        for p in bucket:
+            key = p.id if p.id is not None else p.external_id
+            if key in seen:
+                continue
+            seen.add(key)
+            blended.append(p)
+    by_source: dict[str, list[Post]] = defaultdict(list)
+    for p in blended:
+        by_source[p.source.value].append(p)
+    out: list[Post] = []
+    while len(out) < limit and by_source:
+        empty: list[str] = []
+        for src in list(by_source.keys()):
+            if not by_source[src]:
+                empty.append(src)
+                continue
+            out.append(by_source[src].pop(0))
+            if len(out) >= limit:
+                break
+        for src in empty:
+            by_source.pop(src, None)
+    return out
 
 
 def _corpus(posts: list[Post], comments: list[Comment]) -> list[str]:
